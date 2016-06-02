@@ -1,0 +1,420 @@
+<?php
+/**
+ * Halogy
+ *
+ * A user friendly, modular content management system for PHP 5.0
+ * Built on CodeIgniter - http://codeigniter.com
+ *
+ * @package		Halogy
+ * @author		Haloweb Ltd.
+ * @copyright	Copyright (c) 2008-2011, Haloweb Ltd.
+ * @license		http://halogy.com/license
+ * @link		http://halogy.com/
+ * @since		Version 1.0
+ * @filesource
+ */
+
+// ------------------------------------------------------------------------
+
+class Admin extends MX_Controller {
+
+	// set defaults
+	var $includes_path = '/includes/admin';				// path to includes for header and footer
+	var $redirect = '/admin/artworkimages/viewall';				// default redirect
+	var $permissions = array();
+    var $type = "artworkimage";
+
+	function __construct()
+	{
+		parent::__construct();
+
+		// check user is logged in, if not send them away from this controller
+		if (!$this->session->userdata('session_admin'))
+		{
+			
+			$addtoredirect = "";
+			if ($this->input->get('id'))
+			{
+				$addtoredirect .= "?id=".$this->input->get('id')."";
+			}
+			
+			if ($this->input->get('type'))
+			{
+				$addtoredirect .= "&type=".$this->input->get('type')."";
+			}
+			
+			redirect('/admin/login/'.$this->core->encode($this->uri->uri_string().$addtoredirect));
+		}
+		
+		// get permissions and redirect if they don't have access to this module
+		if (!$this->permission->permissions)
+		{
+			redirect('/admin/dashboard/permissions');
+		}
+		if (!in_array($this->uri->segment(2), $this->permission->permissions))
+		{
+			redirect('/admin/dashboard/permissions');
+		}	
+		
+		// get siteID, if available
+		if (defined('SITEID'))
+		{
+			$this->siteID = SITEID;
+		}
+		
+		//  load models and libs
+		$this->load->library('tags');		
+		$this->load->model('artworkimages_model', 'artworkimages');
+	}
+	
+	function index()
+	{
+		redirect($this->redirect);
+	}
+	
+	function viewall()
+	{
+		
+		/*if (!$this->session->userdata('session_admin'))
+		{
+			$addtoredirect = "";
+			if ($this->input->get('id'))
+			{
+				$addtoredirect .= "?id=".$this->input->get('id')."";
+			}
+			
+			if ($this->input->get('type'))
+			{
+				$addtoredirect .= "&type=".$this->input->get('type')."";
+			}
+			
+			
+			redirect('/admin/loginn/'.$this->core->encode($this->uri->uri_string().$addtoredirect));
+		}
+		*/
+		
+		
+		if ($this->input->get('type'))
+		{
+			// default where
+			$where = array('siteID' => $this->siteID, 'deleted' => 0, 'artwork_id' => $this->input->get('id') , 'draftstatus' => 1);
+		}
+		else
+		{
+			$where = array('siteID' => $this->siteID, 'deleted' => 0, 'artwork_id' => $this->input->get('id') , 'draftstatus' => 0);
+		}
+		
+		
+		
+		
+		// where artworkimage has not passed
+		//$where['artworkimageDate <'] = date("Y-m-d H:i:s", strtotime('-2 days', time()));
+		
+		// grab data and display
+		//m2016
+		$output = $this->core->viewall('artworkimages', $where, array('sequence_num', 'asc'));
+		//m2016
+
+		$this->load->view($this->includes_path.'/header');
+		$this->load->view('admin/viewall',$output);
+		$this->load->view($this->includes_path.'/footer');
+	}
+
+	function add_artworkimage()
+	{
+		// check permissions for this page
+		if (!in_array('artworkimages_edit', $this->permission->permissions))
+		{
+			redirect('/admin/dashboard/permissions');
+		}
+		
+		// required
+		$this->core->required = array(
+			//'artworkimageTitle' => array('label' => 'Artworkimage title', 'rules' => 'required|trim'),
+			//'description' => 'Description'
+		);
+
+		// get values
+		$output['data'] = $this->core->get_values('artworkimages');	
+
+		if (count($_POST))
+		{
+			// set date
+			$this->core->set['dateCreated'] = date("Y-m-d H:i:s");
+			//$this->core->set['tags'] = trim(strtolower($this->input->post('tags')));
+			$this->core->set['userID'] = $this->session->userdata('userID');
+			//$this->core->set['artworkimageDate'] = date("Y-m-d H:i:s", strtotime($this->input->post('artworkimageDate').' 12AM'));
+			//$this->core->set['artworkimageEnd'] = ($this->input->post('artworkimageEnd')) ? date("Y-m-d H:i:s", strtotime($this->input->post('artworkimageEnd').' 11.59PM')) : '';
+			
+			$config['allowed_types'] = 'gif|jpg|jpeg|png';
+			$config['overwrite']  = true;
+			$artwork_img = '';
+			//$config['max_width']  = '100';
+			//$config['max_height']  = '100';
+			
+			//unframed image
+			if ($_FILES['image']['name'] != '') {
+				$randfilename = random_string('alnum');
+				$config['upload_path'] = getcwd().'/static/uploads/artists/artworkimages';
+				$extension = end(explode(".", $_FILES['image']['name']));
+				$config['file_name']= $randfilename.".".$extension;
+				$this->load->library('upload');
+				$this->upload->initialize($config);
+
+				if ( !$this->upload->do_upload('image')) {
+					if ($this->upload->display_errors()){
+					//error code here
+					}
+				}
+				else {
+					$artwork_img = $randfilename.".".$extension;
+					$this->core->set['image'] = $artwork_img;
+				}
+			}
+			
+
+			if ($this->input->get('type'))
+			{
+				$this->core->set['draftstatus'] = 1;
+			}
+			
+			// update
+			if ($this->core->update('artworkimages'))
+			{
+				$artworkimageID = $this->db->insert_id();
+				
+                                /*
+                                 * Create Image folder on upload modules
+                                 */
+                                
+                                if($this->input->post('gallery') == '1'){
+                                    
+                                    $this->core->set['dateCreated'] = date("Y-m-d H:i:s");
+                                    $this->core->set['folderSafe'] = $this->type.'-'.date('d-m-Y').'-'.url_title(strtolower($this->input->post('artworkimageTitle')));
+                                    $this->core->set['folderName'] = $this->type.'-'.date('d-m-Y').'-'.url_title(strtolower($this->input->post('artworkimageTitle')));
+                                    $this->core->set['postID'] = $artworkimageID;
+                                    $this->core->set['folder_type'] = $this->type;
+                                    $this->core->update('image_folders');
+                                }
+
+				// update tags
+				$this->artworkimages->update_tags($artworkimageID, $this->input->post('tags'));
+							
+				// where to redirect to
+				//redirect($this->redirect);
+				
+
+				if ($this->input->get('type'))
+				{
+					$urltype = "&type=1";
+				}
+				else
+				{
+					$urltype = "";
+				}
+				
+				
+				redirect('/admin/artworkimages/viewall?id='.$this->input->post('artwork_id').''.$urltype.'');
+
+				
+			}
+		}
+		
+		// set default date
+		$output['data']['artworkimageDate'] = ($this->input->post('artworkimageDate')) ? $this->input->post('artworkimageDate') : dateFmt(date("Y-m-d H:i:s"), 'd M Y');
+
+		// templates
+		$this->load->view($this->includes_path.'/header');
+		$this->load->view('admin/add_artworkimage', $output);
+		$this->load->view($this->includes_path.'/footer');
+	}
+
+	function edit_artworkimage($artworkimageID)
+	{
+		// check permissions for this page
+		if (!in_array('artworkimages_edit', $this->permission->permissions))
+		{
+			redirect('/admin/dashboard/permissions');
+		}
+		
+		// set object ID
+		$objectID = array('artworkimageID' => $artworkimageID);
+				
+		// required
+		$this->core->required = array(
+			//'artworkimageTitle' => array('label' => 'Artworkimage title', 'rules' => 'required|trim'),
+			//'description' => 'Description'
+		);
+
+		// get values
+		$output['data'] = $this->core->get_values('artworkimages', $objectID);	
+
+		if (count($_POST))
+		{
+			// set date
+			$this->core->set['dateCreated'] = date("Y-m-d H:i:s");
+			//$this->core->set['tags'] = trim(strtolower($this->input->post('tags')));
+			//$this->core->set['artworkimageDate'] = date("Y-m-d H:i:s", strtotime($this->input->post('artworkimageDate').' 12AM'));
+			//$this->core->set['artworkimageEnd'] = ($this->input->post('artworkimageEnd')) ? date("Y-m-d H:i:s", strtotime($this->input->post('artworkimageEnd').' 11.59PM')) : '';
+			
+			$config['allowed_types'] = 'gif|jpg|jpeg|png';
+			$config['overwrite']  = true;
+			$artwork_img = '';
+			//$config['max_width']  = '100';
+			//$config['max_height']  = '100';
+			
+			//unframed image
+			if ($_FILES['image']['name'] != '') {
+				$randfilename = random_string('alnum');
+				$config['upload_path'] = getcwd().'/static/uploads/artists/artworkimages';
+				$extension = end(explode(".", $_FILES['image']['name']));
+				$config['file_name']= $randfilename.".".$extension;
+				$this->load->library('upload');
+				$this->upload->initialize($config);
+
+				if ( !$this->upload->do_upload('image')) {
+					if ($this->upload->display_errors()){
+					//error code here
+					}
+				}
+				else {
+					$artwork_img = $randfilename.".".$extension;
+					$this->core->set['image'] = $artwork_img;
+				}
+			}
+			
+			
+			// update
+			if ($this->core->update('artworkimages', $objectID))
+			{
+
+                                
+
+				// update tags
+				$this->artworkimages->update_tags($artworkimageID, $this->input->post('tags'));
+
+				// set success message
+				$this->session->set_flashdata('success', TRUE);
+
+                                /*
+                                 * Create Image folder on upload modules
+                                 */
+
+                                if($this->input->post('gallery') == '1'){
+
+                                    $this->db->where('postID', $artworkimageID);
+                                    $this->db->where('deleted', 0);
+                                    $this->db->where('folder_type', $this->type);
+                                    $query = $this->db->get('image_folders');
+                                    
+                                    $this->core->set['folderSafe'] = $this->type.'-'.date('d-m-Y').'-'.url_title(strtolower($this->input->post('artworkimageTitle')));
+                                    $this->core->set['folderName'] = $this->type.'-'.date('d-m-Y').'-'.url_title(strtolower($this->input->post('artworkimageTitle')));
+                                    $this->core->set['folder_type'] = $this->type;
+
+                                    if ($query->num_rows()) {
+                                        print_r($this->core->set);
+                                        $this->core->update('image_folders', array('postID' => $artworkimageID, 'folder_type' => $this->type));
+                                    }
+                                    else {
+                                        $this->core->set['postID'] = $artworkimageID;
+                                        $this->core->update('image_folders');
+                                    }
+
+
+
+                                }
+
+
+				if ($this->input->get('type'))
+				{
+					$urltype = "&type=1";
+				}
+				else
+				{
+					$urltype = "";
+				}
+
+
+				// where to redirect to
+				redirect("".$this->uri->uri_string()."?id=".$this->input->post('artwork_id')."".$urltype."");
+			}
+		}
+
+		// set message
+		if ($this->session->flashdata('success'))
+		{
+			$output['message'] = '<p>Your changes were saved.</p>';
+		}
+
+		// templates
+		$this->load->view($this->includes_path.'/header');
+		$this->load->view('admin/edit_artworkimage', $output);
+		$this->load->view($this->includes_path.'/footer');
+	}
+
+	function delete_artworkimage($objectID)
+	{
+		// check permissions for this page
+		if (!in_array('artworkimages_delete', $this->permission->permissions))
+		{
+			redirect('/admin/dashboard/permissions');
+		}		
+		
+
+		if ($this->input->get('type'))
+		{
+			$urltype = "&type=1";
+		}
+		else
+		{
+			$urltype = "";
+		}
+
+		
+		if ($this->core->delete('artworkimages', array('artworkimageID' => $objectID)))
+		{
+                        //delete gallery folder
+                        $this->delete_folder($objectID);
+                        
+			// where to redirect to
+			//redirect($this->redirect);
+			redirect('/admin/artworkimages/viewall?id='.$this->input->get('id').''.$urltype.'');
+
+		}
+	}
+
+        function delete_folder($postID)
+	{
+		// check permissions for this page
+		if (!in_array('images', $this->permission->permissions))
+		{
+			redirect('/admin/dashboard/permissions');
+		}
+
+		// where
+		$objectID = array('postID' => $postID);
+
+		if ($this->core->delete('image_folders', $objectID))
+		{
+			// set children to no parent
+                        //$this->load->model('images_model', 'images');
+			//$this->images->update_children($folderID);
+
+			// where to redirect to
+			//redirect('/admin/images/folders');
+		}
+	}
+
+	function preview()
+	{
+		// get parsed body
+		$html = $this->template->parse_body($this->input->post('body'));
+
+		// filter for scripts
+		$html = preg_replace('/<script(.*)<\/script>/is', '<em>This block contained scripts, please refresh page.</em>', $html);
+
+		// output
+		$this->output->set_output($html);
+	}
+	
+}
